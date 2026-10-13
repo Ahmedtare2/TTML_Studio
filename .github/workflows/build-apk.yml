@@ -1,0 +1,73 @@
+name: Build TTML Studio APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ttml-studio-oct-13-2026-6-50-22-pm.zip"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Extract Android project ZIP
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          import shutil
+
+          archive = Path("ttml-studio-oct-13-2026-6-50-22-pm.zip")
+          target = Path("/tmp/ttml-studio-project")
+          target.mkdir(parents=True, exist_ok=True)
+
+          with zipfile.ZipFile(archive) as z:
+              for item in z.infolist():
+                  dest = (target / item.filename).resolve()
+                  if dest != target.resolve() and target.resolve() not in dest.parents:
+                      raise RuntimeError("Unsafe path in ZIP")
+              z.extractall(target)
+
+          for item in target.iterdir():
+              if item.name in {".git", ".github"}:
+                  continue
+              dest = Path.cwd() / item.name
+              if item.is_dir():
+                  if dest.exists():
+                      shutil.copytree(item, dest, dirs_exist_ok=True)
+                  else:
+                      shutil.copytree(item, dest)
+              else:
+                  shutil.copy2(item, dest)
+          PY
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TTML-Studio-debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
